@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "GraphQL Network Tracker",
+  "version": "0.1.0",
+  "description": "Inspect GraphQL queries, mutations, variables, and responses directly inside Chrome DevTools.",
+  "devtools_page": "devtools.html"
+}
