@@ -45,13 +45,21 @@ body, html, #root {
   padding: 6px 10px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow-x: auto;
 }
 
 .toolbar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-weight: 700;
   color: #f5c2e7;
   letter-spacing: 0.3px;
   margin-right: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .search-box {
