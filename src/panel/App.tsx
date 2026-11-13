@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GraphQLRequestItem, OperationType } from './types';
 import { parseHarEntryToGraphQLItems } from './utils/parseGraphQL';
 import { formatGraphQLQuery } from './utils/formatQuery';
@@ -200,6 +200,11 @@ const DEMO_REQUESTS: GraphQLRequestItem[] = [
   },
 ];
 
+const DEFAULT_LIST_WIDTH = 340;
+const MIN_LIST_WIDTH = 180;
+const MIN_DETAIL_WIDTH = 320;
+const DIVIDER_WIDTH = 5;
+
 export const App: React.FC = () => {
   const [requests, setRequests] = useState<GraphQLRequestItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -209,6 +214,65 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('response');
   const [copied, setCopied] = useState(false);
   const [formatQueries, setFormatQueries] = useState(true);
+  const [listWidth, setListWidth] = useState<number>(DEFAULT_LIST_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const splitPaneRef = useRef<HTMLDivElement | null>(null);
+
+  const clampListWidth = useCallback((desiredWidth: number) => {
+    const container = splitPaneRef.current;
+    if (!container) return desiredWidth;
+    const maxLeft = Math.max(
+      MIN_LIST_WIDTH,
+      container.getBoundingClientRect().width - DIVIDER_WIDTH - 8
+    );
+    return Math.min(maxLeft, Math.max(MIN_LIST_WIDTH, desiredWidth));
+  }, []);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const container = splitPaneRef.current;
+    if (!container) return;
+
+    const syncWidthToContainer = () => {
+      setListWidth((prev) => clampListWidth(prev));
+    };
+
+    syncWidthToContainer();
+    const observer = new ResizeObserver(syncWidthToContainer);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [clampListWidth]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const container = splitPaneRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      setListWidth(clampListWidth(e.clientX - rect.left));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, clampListWidth]);
 
   useEffect(() => {
     if (typeof chrome === 'undefined' || !chrome.devtools?.network) {
@@ -329,8 +393,8 @@ export const App: React.FC = () => {
   }, [requests, search, typeFilter, itemMatcher, regexError]);
 
   const selectedItem = useMemo(
-    () => requests.find((r) => r.id === selectedId) ?? filteredRequests[0] ?? null,
-    [requests, selectedId, filteredRequests]
+    () => filteredRequests.find((r) => r.id === selectedId) ?? filteredRequests[0] ?? null,
+    [selectedId, filteredRequests]
   );
 
   const activeContentString = useMemo(() => {
@@ -354,9 +418,16 @@ export const App: React.FC = () => {
   };
 
   const loadSampleData = () => {
-    setRequests((prev) => [...prev, ...DEMO_REQUESTS]);
-    if (!selectedId) {
-      setSelectedId(DEMO_REQUESTS[0].id);
+    const batchId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toLocaleTimeString();
+    const clonedBatch = DEMO_REQUESTS.map((item, idx) => ({
+      ...item,
+      id: `${item.id}-${batchId}-${idx}`,
+      timestamp: now,
+    }));
+    setRequests((prev) => [...prev, ...clonedBatch]);
+    if (!selectedId && clonedBatch[0]) {
+      setSelectedId(clonedBatch[0].id);
     }
   };
 
@@ -425,8 +496,8 @@ export const App: React.FC = () => {
         </button>
       </header>
 
-      <div className="split-pane">
-        <aside className="request-list-pane">
+      <div className="split-pane" ref={splitPaneRef}>
+        <aside className="request-list-pane" style={{ width: `${listWidth}px` }}>
           {filteredRequests.length === 0 ? (
             <div className="empty-state">
               {regexError ? (
@@ -475,6 +546,26 @@ export const App: React.FC = () => {
           )}
         </aside>
 
+        <div
+          className={`split-divider ${isResizing ? 'dragging' : ''}`}
+          onMouseDown={handleDividerMouseDown}
+          onDoubleClick={() => {
+            const container = splitPaneRef.current;
+            if (!container) {
+              setListWidth(DEFAULT_LIST_WIDTH);
+              return;
+            }
+            const fitWidth = Math.min(
+              DEFAULT_LIST_WIDTH,
+              Math.max(MIN_LIST_WIDTH, container.getBoundingClientRect().width - MIN_DETAIL_WIDTH - DIVIDER_WIDTH)
+            );
+            setListWidth(fitWidth);
+          }}
+          role="separator"
+          aria-orientation="vertical"
+          title="Drag to resize (double-click to reset)"
+        />
+
         <main className="inspector-pane">
           {selectedItem ? (
             <>
@@ -499,7 +590,7 @@ export const App: React.FC = () => {
                     Response {selectedItem.hasGraphQLErrors ? '⚠️' : ''}
                   </button>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="inspector-actions">
                   {activeTab === 'query' && !selectedItem.query.startsWith('# Persisted') && (
                     <button
                       className={`copy-btn ${formatQueries ? 'format-active' : ''}`}
